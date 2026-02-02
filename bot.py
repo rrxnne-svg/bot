@@ -6,7 +6,7 @@ from discord import app_commands
 from discord.ui import Button, View, Modal, TextInput, Select
 
 # ==================== НАСТРОЙКИ ====================
-TOKEN = os.getenv("TOKEN")  # Получаем токен из переменной окружения
+TOKEN = os.getenv("TOKEN")
 GUILD_ID = 1430087806952411230
 ADMIN_ROLES = ["dep.YAK", "Owner", "Leader"]
 VIEW_ROLES = ["member", "Test", "Famlily", "Yak"]
