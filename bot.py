@@ -1,4 +1,4 @@
-# -------------- bot.py (исправленная версия 5.0) --------------
+# -------------- bot.py (исправленная версия 6.0) --------------
 import discord, json, os, asyncio, re, traceback
 from datetime import datetime, timedelta, timezone
 from discord.ext import tasks
@@ -15,7 +15,7 @@ VIEW_ROLES = ["member", "Test", "Famlily", "Yak"]
 STATS_AVG_CHANNEL_ID = 1467543899643052312
 STATS_KILLS_CHANNEL_ID = 1467543933209809076
 CAPTS_LIST_CHANNEL_ID = 1467544000088117451
-LOG_CHANNEL_ID = None  # Укажите ID канала для логов
+LOG_CHANNEL_ID = 1467598151269150822  # ID канала для логов
 
 # Московское время (UTC+3)
 MSK_TZ = timezone(timedelta(hours=3))
@@ -53,7 +53,6 @@ def load_capts() -> list:
     try:
         with open(DB_CAPTS, "r", encoding="utf-8") as f:
             capts = json.load(f) or []
-            # Конвертируем строки дат в объекты datetime с московским временем
             for capt in capts:
                 if "date" in capt and isinstance(capt["date"], str):
                     try:
@@ -77,6 +76,14 @@ def has_role(member: discord.Member, roles: list) -> bool:
         return False
     role_names = [role.name for role in member.roles]
     return any(role_name in roles for role_name in role_names)
+
+def is_admin(member: discord.Member) -> bool:
+    """Проверка, является ли пользователь админом"""
+    return has_role(member, ADMIN_ROLES)
+
+def is_viewer(member: discord.Member) -> bool:
+    """Проверка, может ли пользователь просматривать статистику"""
+    return has_role(member, VIEW_ROLES)
 
 def progress_bar(percent: int, length: int = 10):
     filled = int(percent / 100 * length)
@@ -437,16 +444,15 @@ class CaptDetailsView(View):
     дата="Дата (ДД.ММ.ГГГГ ЧЧ:ММ)"
 )
 async def add_capt(inter: discord.Interaction, против: str, результат: str, дата: str = None):
+    if not is_admin(inter.user):
+        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
+        return
+    
     await log_command_start(inter, "добавить_капт", {
         "против": против,
         "результат": результат,
         "дата": дата or "текущая"
     })
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "добавить_капт", "Нет доступа")
-        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
-        return
     
     result_text = результат.strip().lower()
     if result_text not in ["win", "lose", "победа", "поражение", "в", "п"]:
@@ -500,17 +506,16 @@ async def add_capt(inter: discord.Interaction, против: str, результ
     номер_капта="Номер капта (1 = последний)"
 )
 async def add_player(inter: discord.Interaction, игрок: discord.Member, урон: int, киллы: int, номер_капта: int = 1):
+    if not is_admin(inter.user):
+        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
+        return
+    
     await log_command_start(inter, "добавить_игрока", {
         "игрок": f"{игрок.mention} ({игрок.display_name})",
         "урон": урон,
         "киллы": киллы,
         "номер_капта": номер_капта
     })
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "добавить_игрока", "Нет доступа")
-        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
-        return
 
     capts = load_capts()
     if номер_капта < 1 or номер_капта > len(capts):
@@ -544,9 +549,9 @@ async def add_player(inter: discord.Interaction, игрок: discord.Member, у�
     save_stats(st)
     save_capts(capts)
     
-    asyncio.create_task(update_capts_list())
     asyncio.create_task(update_avg_top())
     asyncio.create_task(update_kills_top())
+    asyncio.create_task(update_capts_list())
     
     await log_command_success(inter, "добавить_игрока", f"Игрок {игрок.mention} добавлен в капт #{номер_капта}")
     
@@ -562,15 +567,14 @@ async def add_player(inter: discord.Interaction, игрок: discord.Member, у�
     номер_капта="Номер капта"
 )
 async def upload_players(inter: discord.Interaction, данные: str, номер_капта: int = 1):
+    if not is_admin(inter.user):
+        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
+        return
+    
     await log_command_start(inter, "загрузить_игроков", {
         "данные": f"{len(данные.splitlines())} строк",
         "номер_капта": номер_капта
     })
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "загрузить_игроков", "Нет доступа")
-        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
-        return
     
     await inter.response.defer(ephemeral=True)
     
@@ -634,9 +638,9 @@ async def upload_players(inter: discord.Interaction, данные: str, номе
         
         save_capts(capts)
         
-        asyncio.create_task(update_capts_list())
         asyncio.create_task(update_avg_top())
         asyncio.create_task(update_kills_top())
+        asyncio.create_task(update_capts_list())
         
         await log_command_success(inter, "загрузить_игроков", f"Добавлено {added} игроков, ошибок: {len(errors)}")
         
@@ -659,15 +663,14 @@ async def upload_players(inter: discord.Interaction, данные: str, номе
     результат="Результат по умолчанию (win/lose)"
 )
 async def upload_capts(inter: discord.Interaction, файл: discord.Attachment, результат: str = "win"):
+    if not is_admin(inter.user):
+        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
+        return
+    
     await log_command_start(inter, "загрузить_капты", {
         "файл": файл.filename,
         "результат": результат
     })
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "загрузить_капты", "Нет доступа")
-        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
-        return
     
     await inter.response.defer(ephemeral=True)
     
@@ -800,9 +803,9 @@ async def upload_capts(inter: discord.Interaction, файл: discord.Attachment,
             save_capts(capts)
             save_stats(st)
             
-            asyncio.create_task(update_capts_list())
             asyncio.create_task(update_avg_top())
             asyncio.create_task(update_kills_top())
+            asyncio.create_task(update_capts_list())
         
         await log_command_success(inter, "загрузить_капты", f"Загружено {added_capts} каптов, ошибок: {len(errors)}")
         
@@ -827,12 +830,11 @@ async def upload_capts(inter: discord.Interaction, файл: discord.Attachment,
 @tree.command(name="удалить_капт", description="🗑️ Удалить капт", guild=discord.Object(GUILD_ID))
 @app_commands.describe(номер="Номер капта")
 async def delete_capt(inter: discord.Interaction, номер: int):
-    await log_command_start(inter, "удалить_капт", {"номер": номер})
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "удалить_капт", "Нет доступа")
+    if not is_admin(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "удалить_капт", {"номер": номер})
     
     capts = load_capts()
     if номер < 1 or номер > len(capts):
@@ -855,9 +857,9 @@ async def delete_capt(inter: discord.Interaction, номер: int):
     save_stats(st)
     save_capts(capts)
     
-    asyncio.create_task(update_capts_list())
     asyncio.create_task(update_avg_top())
     asyncio.create_task(update_kills_top())
+    asyncio.create_task(update_capts_list())
     
     await log_command_success(inter, "удалить_капт", f"Удален капт #{номер} против {removed_capt['vs']}")
     
@@ -868,12 +870,11 @@ async def delete_capt(inter: discord.Interaction, номер: int):
 
 @tree.command(name="сбросить_статистику", description="🔄 Сбросить всю статистику", guild=discord.Object(GUILD_ID))
 async def reset_stats(inter: discord.Interaction):
-    await log_command_start(inter, "сбросить_статистику", {})
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "сбросить_статистику", "Нет доступа")
+    if not is_admin(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "сбросить_статистику", {})
     
     capts = load_capts()
     stats_count = len(load_stats())
@@ -881,9 +882,9 @@ async def reset_stats(inter: discord.Interaction):
     save_stats({})
     save_capts([])
     
-    asyncio.create_task(update_capts_list())
     asyncio.create_task(update_avg_top())
     asyncio.create_task(update_kills_top())
+    asyncio.create_task(update_capts_list())
     
     await log_command_success(inter, "сбросить_статистику", f"Удалено {len(capts)} каптов и {stats_count} записей статистики")
     
@@ -902,12 +903,11 @@ async def reset_stats(inter: discord.Interaction):
     app_commands.Choice(name="За месяц", value="month")
 ])
 async def list_capts(inter: discord.Interaction, period: str = "all"):
-    await log_command_start(inter, "список_каптов", {"period": period})
-    
-    if not has_role(inter.user, VIEW_ROLES):
-        await log_command_error(inter, "список_каптов", "Нет доступа")
+    if not is_viewer(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "список_каптов", {"period": period})
     
     await inter.response.defer(ephemeral=True)
     
@@ -926,12 +926,11 @@ async def list_capts(inter: discord.Interaction, period: str = "all"):
 @tree.command(name="профиль", description="📊 Профиль игрока", guild=discord.Object(GUILD_ID))
 @app_commands.describe(игрок="Игрок")
 async def profile(inter: discord.Interaction, игрок: discord.Member = None):
-    await log_command_start(inter, "профиль", {"игрок": f"{игрок.mention if игрок else inter.user.mention}"})
-    
-    if not has_role(inter.user, VIEW_ROLES):
-        await log_command_error(inter, "профиль", "Нет доступа")
+    if not is_viewer(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "профиль", {"игрок": f"{игрок.mention if игрок else inter.user.mention}"})
     
     target = игрок or inter.user
     st = load_stats()
@@ -964,12 +963,11 @@ async def profile(inter: discord.Interaction, игрок: discord.Member = None)
 @tree.command(name="капт", description="📋 Детали капта", guild=discord.Object(GUILD_ID))
 @app_commands.describe(номер="Номер капта (1 = последний)")
 async def capt_details(inter: discord.Interaction, номер: int = 1):
-    await log_command_start(inter, "капт", {"номер": номер})
-    
-    if not has_role(inter.user, VIEW_ROLES):
-        await log_command_error(inter, "капт", "Нет доступа")
+    if not is_viewer(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "капт", {"номер": номер})
     
     await inter.response.defer()
     
@@ -1021,12 +1019,11 @@ async def capt_details(inter: discord.Interaction, номер: int = 1):
     app_commands.Choice(name="За месяц", value="month")
 ])
 async def top_avg(inter: discord.Interaction, period: str = "all"):
-    await log_command_start(inter, "топ_средний", {"period": period})
-    
-    if not has_role(inter.user, VIEW_ROLES):
-        await log_command_error(inter, "топ_средний", "Нет доступа")
+    if not is_viewer(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "топ_средний", {"period": period})
     
     await inter.response.defer(ephemeral=True)
     
@@ -1094,12 +1091,11 @@ async def top_avg(inter: discord.Interaction, period: str = "all"):
     app_commands.Choice(name="За месяц", value="month")
 ])
 async def top_kills(inter: discord.Interaction, period: str = "all"):
-    await log_command_start(inter, "топ_киллы", {"period": period})
-    
-    if not has_role(inter.user, VIEW_ROLES):
-        await log_command_error(inter, "топ_киллы", "Нет доступа")
+    if not is_viewer(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "топ_киллы", {"period": period})
     
     await inter.response.defer(ephemeral=True)
     
@@ -1163,12 +1159,11 @@ async def top_kills(inter: discord.Interaction, period: str = "all"):
     app_commands.Choice(name="За месяц", value="month")
 ])
 async def my_stats(inter: discord.Interaction, period: str = "all"):
-    await log_command_start(inter, "моя_статистика", {"period": period})
-    
-    if not has_role(inter.user, VIEW_ROLES):
-        await log_command_error(inter, "моя_статистика", "Нет доступа")
+    if not is_viewer(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "моя_статистика", {"period": period})
     
     await inter.response.defer(ephemeral=True)
     
@@ -1233,9 +1228,13 @@ async def my_stats(inter: discord.Interaction, period: str = "all"):
 
 @tree.command(name="справка", description="📚 Помощь по командам", guild=discord.Object(GUILD_ID))
 async def help_cmd(inter: discord.Interaction):
+    if not is_viewer(inter.user):
+        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
+        return
+    
     await log_command_start(inter, "справка", {})
     
-    is_admin = has_role(inter.user, ADMIN_ROLES)
+    is_admin_user = is_admin(inter.user)
     
     embed = discord.Embed(
         title="📚 СПРАВКА ПО КОМАНДАМ",
@@ -1258,7 +1257,7 @@ async def help_cmd(inter: discord.Interaction):
         inline=False
     )
     
-    if is_admin:
+    if is_admin_user:
         embed.add_field(
             name="👑 Для админов",
             value=(
@@ -1268,6 +1267,7 @@ async def help_cmd(inter: discord.Interaction):
                 "`/загрузить_каптов` - Загрузить из файла\n"
                 "`/удалить_капт` - Удалить капт\n"
                 "`/сбросить_статистику` - Сброс всего\n"
+                "`/обновить` - Обновить все топы\n"
                 "`/sync` - Синхронизация команд"
             ),
             inline=False
@@ -1284,24 +1284,54 @@ async def help_cmd(inter: discord.Interaction):
             inline=False
         )
     
-    embed.set_footer(text="YAK Clan Stats Bot v5.0")
+    embed.set_footer(text="YAK Clan Stats Bot v6.0")
     
     await inter.response.send_message(embed=embed, ephemeral=True)
     await log_command_success(inter, "справка", "Показана справка")
 
-@tree.command(name="sync", description="🔄 Синхронизировать команды", guild=discord.Object(GUILD_ID))
-async def sync_commands(inter: discord.Interaction):
-    await log_command_start(inter, "sync", {})
-    
-    if not has_role(inter.user, ADMIN_ROLES):
-        await log_command_error(inter, "sync", "Нет доступа")
+@tree.command(name="обновить", description="🔄 Принудительно обновить топы и список каптов", guild=discord.Object(GUILD_ID))
+async def manual_update(inter: discord.Interaction):
+    if not is_admin(inter.user):
         await inter.response.send_message("❌ Нет доступа", ephemeral=True)
         return
+    
+    await log_command_start(inter, "обновить", {})
+    
+    await inter.response.defer(ephemeral=True)
+    
+    try:
+        # Логируем начало обновления
+        await log_system_event("🔄 Ручное обновление топов", f"Инициировано пользователем {inter.user.mention}")
+        
+        # Обновляем все топы
+        await update_avg_top()
+        await update_kills_top()
+        await update_capts_list()
+        
+        await log_command_success(inter, "обновить", "Все топы обновлены")
+        await log_system_event("✅ Ручное обновление завершено", "Все топы успешно обновлены")
+        await inter.followup.send("✅ Все топы успешно обновлены!", ephemeral=True)
+        
+    except Exception as e:
+        await log_command_error(inter, "обновить", str(e))
+        await log_system_event("❌ Ошибка ручного обновления", f"Ошибка: {str(e)}")
+        await inter.followup.send(f"❌ Ошибка при обновлении: {str(e)}", ephemeral=True)
+
+@tree.command(name="sync", description="🔄 Синхронизировать команды", guild=discord.Object(GUILD_ID))
+async def sync_commands(inter: discord.Interaction):
+    if not is_admin(inter.user):
+        await inter.response.send_message("❌ Нет доступа", ephemeral=True)
+        return
+    
+    await log_command_start(inter, "sync", {})
     
     await inter.response.defer(ephemeral=True)
     
     try:
         synced = await tree.sync(guild=discord.Object(GUILD_ID))
+        
+        # Логируем синхронизацию
+        await log_system_event("🔄 Синхронизация команд", f"Синхронизировано команд: {len(synced)}")
         
         embed = discord.Embed(
             title="✅ Команды синхронизированы",
@@ -1329,138 +1359,231 @@ async def sync_commands(inter: discord.Interaction):
             color=0xe74c3c,
             timestamp=now_msk()
         )
+        await log_system_event("❌ Ошибка синхронизации", f"Ошибка: {str(e)}")
         await inter.followup.send(embed=embed, ephemeral=True)
         await log_command_error(inter, "sync", str(e))
 
 # ==================== АВТООБНОВЛЕНИЕ ====================
 async def update_avg_top():
+    """Обновление топа по среднему урону"""
     channel = client.get_channel(STATS_AVG_CHANNEL_ID)
     if not channel:
+        await log_system_event("❌ Канал не найден", f"Канал STATS_AVG_CHANNEL_ID ({STATS_AVG_CHANNEL_ID}) не найден")
         return
-
-    st = load_stats()
-    filtered = {uid: d for uid, d in st.items() if d["games"] >= 3}
-    if not filtered:
-        return
-
-    users = sorted(filtered.items(), key=lambda x: x[1]["damage"]/x[1]["games"], reverse=True)[:10]
-
-    embed = discord.Embed(
-        title="🏆 ТОП-10 СРЕДНЕГО УРОНА",
-        color=0x9b59b6,
-        timestamp=now_msk()
-    )
-
-    desc = ""
-    for i, (uid, data) in enumerate(users, 1):
-        try:
-            member = await channel.guild.fetch_member(int(uid))
-            name = member.display_name
-        except:
-            name = f"Игрок {uid}"
-
-        avg = data["damage"] // data["games"]
-        leader_avg = users[0][1]["damage"] // users[0][1]["games"]
-        percent = (avg / leader_avg * 100) if leader_avg > 0 else 0
-        bar = progress_bar(percent)
-
-        desc += f"{medal(i)} **{i}. {name}**\n{bar} **{avg:,}** урона ({data['games']} игр)\n\n"
-
-    embed.description = desc
-    embed.set_footer(text="Обновляется каждый час • Минимум 3 игры")
-
-    async for msg in channel.history(limit=50):
-        if msg.author.id == client.user.id and msg.embeds:
-            if "ТОП-10 СРЕДНЕГО УРОНА" in msg.embeds[0].title:
-                try:
-                    await msg.edit(embed=embed)
-                    return
-                except:
-                    pass
 
     try:
-        await channel.send(embed=embed)
-    except:
-        pass
+        st = load_stats()
+        
+        # Фильтруем только игроков с 3+ играми
+        filtered = {uid: d for uid, d in st.items() if d["games"] >= 3}
+        
+        if not filtered:
+            # Если нет игроков с 3+ играми, покажем сообщение об этом
+            embed = discord.Embed(
+                title="🏆 ТОП-10 СРЕДНЕГО УРОНА",
+                description="📭 Нет игроков с 3+ играми",
+                color=0x9b59b6,
+                timestamp=now_msk()
+            )
+            embed.set_footer(text="Минимум 3 игры для участия")
+            
+            # Ищем сообщение для редактирования
+            async for msg in channel.history(limit=50):
+                if msg.author.id == client.user.id and msg.embeds:
+                    if "ТОП-10 СРЕДНЕГО УРОНА" in msg.embeds[0].title:
+                        try:
+                            await msg.edit(embed=embed)
+                            await log_system_event("✅ Топ урона обновлен", "Нет игроков с 3+ играми")
+                            return
+                        except Exception as e:
+                            await log_system_event("❌ Ошибка редактирования топа урона", f"Ошибка: {str(e)}")
+            
+            # Если не нашли сообщение, отправляем новое
+            try:
+                await channel.send(embed=embed)
+                await log_system_event("✅ Топ урона отправлен", "Нет игроков с 3+ играми")
+            except Exception as e:
+                await log_system_event("❌ Ошибка отправки топа урона", f"Ошибка: {str(e)}")
+            return
+
+        # Сортируем игроков по среднему урону
+        users = sorted(filtered.items(), key=lambda x: x[1]["damage"]/x[1]["games"], reverse=True)[:10]
+
+        embed = discord.Embed(
+            title="🏆 ТОП-10 СРЕДНЕГО УРОНА",
+            color=0x9b59b6,
+            timestamp=now_msk()
+        )
+
+        desc = ""
+        for i, (uid, data) in enumerate(users, 1):
+            try:
+                member = await channel.guild.fetch_member(int(uid))
+                name = member.display_name
+            except:
+                name = f"Игрок {uid}"
+
+            avg = data["damage"] // data["games"]
+            leader_avg = users[0][1]["damage"] // users[0][1]["games"]
+            percent = (avg / leader_avg * 100) if leader_avg > 0 else 0
+            bar = progress_bar(percent)
+
+            desc += f"{medal(i)} **{i}. {name}**\n{bar} **{avg:,}** урона ({data['games']} игр)\n\n"
+
+        embed.description = desc
+        embed.set_footer(text="Обновляется каждый час • Минимум 3 игры")
+
+        # Ищем существующее сообщение для редактирования
+        found = False
+        async for msg in channel.history(limit=50):
+            if msg.author.id == client.user.id and msg.embeds:
+                if "ТОП-10 СРЕДНЕГО УРОНА" in msg.embeds[0].title:
+                    try:
+                        await msg.edit(embed=embed)
+                        await log_system_event("✅ Топ урона обновлен", f"Обновлено {len(users)} игроков")
+                        found = True
+                        break
+                    except Exception as e:
+                        await log_system_event("❌ Ошибка редактирования топа урона", f"Ошибка: {str(e)}")
+                        found = False
+        
+        # Если не нашли сообщение, отправляем новое
+        if not found:
+            try:
+                await channel.send(embed=embed)
+                await log_system_event("✅ Топ урона отправлен", f"Отправлено {len(users)} игроков")
+            except Exception as e:
+                await log_system_event("❌ Ошибка отправки топа урона", f"Ошибка: {str(e)}")
+                
+    except Exception as e:
+        await log_system_event("❌ Критическая ошибка в update_avg_top", f"Ошибка: {str(e)}")
 
 async def update_kills_top():
+    """Обновление топа по киллам"""
     channel = client.get_channel(STATS_KILLS_CHANNEL_ID)
     if not channel:
+        await log_system_event("❌ Канал не найден", f"Канал STATS_KILLS_CHANNEL_ID ({STATS_KILLS_CHANNEL_ID}) не найден")
         return
-
-    st = load_stats()
-    if not st:
-        return
-
-    users = sorted(st.items(), key=lambda x: x[1]["kills"], reverse=True)[:10]
-
-    embed = discord.Embed(
-        title="☠️ ТОП-10 ПО КИЛЛАМ",
-        color=0xe74c3c,
-        timestamp=now_msk()
-    )
-
-    desc = ""
-    for i, (uid, data) in enumerate(users, 1):
-        try:
-            member = await channel.guild.fetch_member(int(uid))
-            name = member.display_name
-        except:
-            name = f"Игрок {uid}"
-
-        leader_kills = users[0][1]["kills"]
-        percent = (data["kills"] / leader_kills * 100) if leader_kills > 0 else 0
-        bar = progress_bar(percent)
-
-        desc += f"{medal(i)} **{i}. {name}**\n{bar} **{data['kills']}** киллов ({data['games']} игр)\n\n"
-
-    embed.description = desc
-    embed.set_footer(text="Обновляется каждый час")
-
-    async for msg in channel.history(limit=50):
-        if msg.author.id == client.user.id and msg.embeds:
-            if "ТОП-10 ПО КИЛЛАМ" in msg.embeds[0].title:
-                try:
-                    await msg.edit(embed=embed)
-                    return
-                except:
-                    pass
 
     try:
-        await channel.send(embed=embed)
-    except:
-        pass
+        st = load_stats()
+        
+        if not st:
+            embed = discord.Embed(
+                title="☠️ ТОП-10 ПО КИЛЛАМ",
+                description="📭 Статистика пуста",
+                color=0xe74c3c,
+                timestamp=now_msk()
+            )
+            embed.set_footer(text="Обновляется каждый час")
+            
+            async for msg in channel.history(limit=50):
+                if msg.author.id == client.user.id and msg.embeds:
+                    if "ТОП-10 ПО КИЛЛАМ" in msg.embeds[0].title:
+                        try:
+                            await msg.edit(embed=embed)
+                            await log_system_event("✅ Топ киллов обновлен", "Статистика пуста")
+                            return
+                        except Exception as e:
+                            await log_system_event("❌ Ошибка редактирования топа киллов", f"Ошибка: {str(e)}")
+            
+            try:
+                await channel.send(embed=embed)
+                await log_system_event("✅ Топ киллов отправлен", "Статистика пуста")
+            except Exception as e:
+                await log_system_event("❌ Ошибка отправки топа киллов", f"Ошибка: {str(e)}")
+            return
+
+        users = sorted(st.items(), key=lambda x: x[1]["kills"], reverse=True)[:10]
+
+        embed = discord.Embed(
+            title="☠️ ТОП-10 ПО КИЛЛАМ",
+            color=0xe74c3c,
+            timestamp=now_msk()
+        )
+
+        desc = ""
+        for i, (uid, data) in enumerate(users, 1):
+            try:
+                member = await channel.guild.fetch_member(int(uid))
+                name = member.display_name
+            except:
+                name = f"Игрок {uid}"
+
+            leader_kills = users[0][1]["kills"]
+            percent = (data["kills"] / leader_kills * 100) if leader_kills > 0 else 0
+            bar = progress_bar(percent)
+
+            desc += f"{medal(i)} **{i}. {name}**\n{bar} **{data['kills']}** киллов ({data['games']} игр)\n\n"
+
+        embed.description = desc
+        embed.set_footer(text="Обновляется каждый час")
+
+        found = False
+        async for msg in channel.history(limit=50):
+            if msg.author.id == client.user.id and msg.embeds:
+                if "ТОП-10 ПО КИЛЛАМ" in msg.embeds[0].title:
+                    try:
+                        await msg.edit(embed=embed)
+                        await log_system_event("✅ Топ киллов обновлен", f"Обновлено {len(users)} игроков")
+                        found = True
+                        break
+                    except Exception as e:
+                        await log_system_event("❌ Ошибка редактирования топа киллов", f"Ошибка: {str(e)}")
+                        found = False
+        
+        if not found:
+            try:
+                await channel.send(embed=embed)
+                await log_system_event("✅ Топ киллов отправлен", f"Отправлено {len(users)} игроков")
+            except Exception as e:
+                await log_system_event("❌ Ошибка отправки топа киллов", f"Ошибка: {str(e)}")
+                
+    except Exception as e:
+        await log_system_event("❌ Критическая ошибка в update_kills_top", f"Ошибка: {str(e)}")
 
 async def update_capts_list():
+    """Обновление списка каптов"""
     channel = client.get_channel(CAPTS_LIST_CHANNEL_ID)
     if not channel:
+        await log_system_event("❌ Канал не найден", f"Канал CAPTS_LIST_CHANNEL_ID ({CAPTS_LIST_CHANNEL_ID}) не найден")
         return
 
-    view = CaptsListView(channel.guild, "all")
-    embed = await view.create_embed()
-
-    async for msg in channel.history(limit=50):
-        if msg.author.id == client.user.id and msg.embeds:
-            if "История каптов" in msg.embeds[0].title:
-                try:
-                    await msg.edit(embed=embed, view=view)
-                    print("✅ Список каптов обновлён")
-                    return
-                except:
-                    pass
-
     try:
-        await channel.send(embed=embed, view=view)
-        print("✅ Список каптов отправлен")
-    except:
-        pass
+        view = CaptsListView(channel.guild, "all")
+        embed = await view.create_embed()
+
+        found = False
+        async for msg in channel.history(limit=50):
+            if msg.author.id == client.user.id and msg.embeds:
+                if "История каптов" in msg.embeds[0].title:
+                    try:
+                        await msg.edit(embed=embed, view=view)
+                        await log_system_event("✅ Список каптов обновлен", f"Загружено {len(view.capts)} каптов")
+                        found = True
+                        break
+                    except Exception as e:
+                        await log_system_event("❌ Ошибка редактирования списка каптов", f"Ошибка: {str(e)}")
+                        found = False
+        
+        if not found:
+            try:
+                await channel.send(embed=embed, view=view)
+                await log_system_event("✅ Список каптов отправлен", f"Загружено {len(view.capts)} каптов")
+            except Exception as e:
+                await log_system_event("❌ Ошибка отправки списка каптов", f"Ошибка: {str(e)}")
+                
+    except Exception as e:
+        await log_system_event("❌ Критическая ошибка в update_capts_list", f"Ошибка: {str(e)}")
 
 @tasks.loop(hours=1)
 async def auto_update():
+    """Автоматическое обновление топов каждый час"""
+    await log_system_event("⏰ Начало автообновления", "Запущено автоматическое обновление топов")
     await update_avg_top()
     await update_kills_top()
     await update_capts_list()
-    print(f"✅ Автообновление выполнено: {datetime.now().strftime('%H:%M:%S')}")
+    await log_system_event("✅ Автообновление завершено", "Все топы успешно обновлены")
 
 # ==================== СОБЫТИЯ ====================
 @client.event
@@ -1472,23 +1595,32 @@ async def on_ready():
         synced = await tree.sync(guild=discord.Object(GUILD_ID))
         print(f"✅ Команды синхронизированы: {len(synced)} команд")
         
+        # Логируем запуск
+        await log_system_event("✅ Бот запущен", f"Бот успешно запущен. Синхронизировано {len(synced)} команд")
+        
         # Показываем список синхронизированных команд
         for cmd in synced:
             print(f"  • /{cmd.name}")
     except Exception as e:
         print(f"❌ Ошибка синхронизации: {e}")
+        await log_system_event("❌ Ошибка синхронизации", f"Ошибка: {str(e)}")
     
     if not auto_update.is_running():
         auto_update.start()
         print("✅ Автообновление запущено")
+        await log_system_event("✅ Автообновление запущено", "Топы будут обновляться каждый час")
     
     # Принудительно обновляем все списки при запуске
     try:
+        await log_system_event("🔄 Обновление при запуске", "Начато принудительное обновление топов при запуске")
         await update_capts_list()
         await update_avg_top()
         await update_kills_top()
+        await log_system_event("✅ Обновление завершено", "Все топы обновлены при запуске")
+        print("✅ Все списки обновлены при запуске")
     except Exception as e:
         print(f"⚠️ Ошибка при обновлении списков: {e}")
+        await log_system_event("❌ Ошибка обновления", f"Ошибка при обновлении списков: {str(e)}")
 
 @client.event
 async def on_member_remove(member: discord.Member):
@@ -1498,6 +1630,9 @@ async def on_member_remove(member: discord.Member):
     if uid in st:
         del st[uid]
         save_stats(st)
+        
+        await log_system_event("👤 Игрок покинул сервер", 
+                             f"Игрок {member.mention} ({member.display_name}) покинул сервер. Статистика удалена.")
         
         asyncio.create_task(update_avg_top())
         asyncio.create_task(update_kills_top())
