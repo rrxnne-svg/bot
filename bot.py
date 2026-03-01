@@ -8,7 +8,7 @@ from discord.ui import Button, View
 # ==================== НАСТРОЙКИ ====================
 TOKEN = os.getenv("TOKEN")
 GUILD_ID = 1430087806952411230
-ADMIN_ROLES = ["dep.YAK", "Owner", "Leader"]
+ADMIN_ROLES = ["dep.YAK", "Owner", "Leader", "high.YAK"]
 VIEW_ROLES = ["member", "Test", "Famlily", "Yak"]
 
 # ID каналов
